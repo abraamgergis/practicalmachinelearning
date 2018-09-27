@@ -1,0 +1,141 @@
+---
+title: "Machine Learning Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ** I. Background:**
+
+   Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount
+of data about personal activity relatively inexpensively. One thing that people regularly do is quantify how 
+much of a particular activity they do, but they rarely quantify how well they do it. In this project, your 
+goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They 
+were asked to perform barbell lifts correctly and incorrectly in 5 different ways
+
+   The goal of your project is to predict the manner in which they did the exercise. This is the "classe" 
+variable in the training set. You may use any of the other variables to predict with. You should create a 
+report describing how you built your model, how you used cross validation, what you think the expected out of
+sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 
+different test cases.
+
+## ** II. Setting up Environment and Loading Dataset:**
+
+ Let's first load all needed libraries on our working environment:
+```{r, results='hide'}
+library(caret)
+library(rattle)
+library(readr)
+```
+
+Now, set the seed for the sake of reproducibility:
+```{r}
+set.seed(1234)
+```
+
+ The project is now ready to load the datasets:
+```{r, results='hide'}
+setwd("~/MachineLearning project")
+pml_training <- read_csv("pml-training.csv")
+pml_testing <- read_csv("pml-testing.csv")
+```
+ Set the *pml_testing* aside for final validation, and we then can partition the *pml_training*into 2 sets to pick the best model using:
+```{r}
+inTrain <- createDataPartition(pml_training$classe, p = 0.7, list = FALSE)
+training <- pml_training[inTrain,]
+testing <- pml_training[-inTrain,]
+```
+
+## **III. Processing the Data:**
+
+ The first step is to remove the near zero variance variables using the code:
+```{r}
+nzv <- nearZeroVar(training, saveMetrics = TRUE)
+training <- training[,nzv$nzv==FALSE]
+```
+ you may have noticed that the first columns are for indexing and timestamps; these probably should not be included since they do not have any effect on the outcome:
+```{r}
+training <- training[, -(1:5)]
+```
+ Last step is to deal with our missing data; since many of our variables contain 70% or more missing values, so excluding them altogether will make more sense. then we can handle other NAs.
+```{r}
+AllNA <- sapply(training, function(x) mean(is.na(x))) > 0.7
+training <- training [, AllNA == FALSE]
+
+#calculate if there still are missing values
+sum(is.na(training))
+
+#let's impute those values
+training[is.na(training)] <- 0
+```
+
+ And finally let's prep our testing set the same way we did to the training, so it's ready as well:
+```{r}
+testing <- testing[, -(1:5)]
+AllNA_test <- sapply(testing, function(x) mean(is.na(x))) > 0.7
+testing <- testing [, AllNA_test == FALSE]
+testing[is.na(testing)] <- 0
+```
+
+## **IV.Building Prediction Models:**
+
+   Let's now build different prediction models in order to compare their outcomes and accuracy in prediction. For our purpose here, let's apply *Decision Tree*, *Random Forests* and *Boosting*:
+   
+###IV. A. Predicting with Decision Tree:
+
+```{r}
+set.seed(1234)
+model_rpart <- train(classe ~ ., method = "rpart", data = training)
+print(model_rpart$finalModel)
+fancyRpartPlot(model_rpart$finalModel)
+```
+
+   and in order to calculate its accuracy let's predict on *testing* dataset and create the confusion matrix:
+```{r}
+pred_rpart <- predict(model_rpart, newdata = testing)
+conf_rpart <- confusionMatrix(pred_rpart, as.factor(testing$classe))
+conf_rpart
+```
+ That gives us accuracy of only *0.52*, not interesting. right?
+ Let's try another model then.
+ 
+###IV. B. Predicting with Boosting:
+```{r}
+set.seed(1234)
+#we create the model with number of 3 only to decrease computational time
+model_gbm <- train(classe ~ ., data = training, method = "gbm", verbose = FALSE, trControl = trainControl(method = "cv", number = 3))
+print(model_gbm$finalModel)
+```
+ And to evaluate this model:
+```{r}
+pred_gbm <- predict(model_gbm, newdata = testing)
+conf_gbm <- confusionMatrix(pred_gbm, as.factor(testing$classe))
+conf_gbm
+```
+ Now this model is giving us a better accuracy rate of *0.986*. That model looks pretty good compared to last one. But let's try another one and see what is better.
+ 
+###IV. C. Predicting with Random Forests:
+```{r}
+set.seed(1234)
+#we create the model with number of 3 only to decrease computational time
+model_rf <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", number = 3))
+print(model_rf$finalModel)
+```
+ Let's evaluate it:
+```{r}
+pred_rf <- predict(model_rf, newdata = testing)
+conf_rf <- confusionMatrix(pred_rf, as.factor(testing$classe))
+conf_rf
+```
+  And we have a winner with *0.995* accuracy, far better that the other two models we used earlier.
+  
+  
+##**V. Predicting Results on Test Data:**
+
+ Finally, we can apply our best model *-Random Forests-* to test dataset *(pml_testing)* to predict values. With accuracy of *99.54%* we expect pretty close results:
+```{r}
+pred_test <- predict(model_rf, newdata = pml_testing)
+pred_test
+```
